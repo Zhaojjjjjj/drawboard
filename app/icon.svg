@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Drawboard mark: an unclosed square (a board mid-draw) + the pen-lift dot.
+       Pure geometry: straight lines and one circle, flat #7C3AED. -->
+  <path d="M42 14 H16 V50 H50 V31" fill="none" stroke="#7C3AED" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="53" cy="14" r="4.5" fill="#7C3AED"/>
+</svg>
