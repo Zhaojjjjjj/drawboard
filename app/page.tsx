@@ -1,6 +1,8 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import LiveDemo from '@/components/LiveDemo';
 import { Logo } from '@/components/Logo';
+import { createClient } from '@/lib/supabase/server';
 
 const FEATURES = [
   { title: '停笔就存', desc: '画完不用导文件、不用按保存。停笔片刻自动存到云端，顶栏实时告诉你存没存上。', icon: <path d="M5 13 a7 7 0 1 1 2 5 L5 13 Z M8 13 l3 3 l5 -6" stroke="#7C3AED" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" transform="translate(1,-1)" /> },
@@ -8,7 +10,16 @@ const FEATURES = [
   { title: '导出自由', desc: 'PNG、SVG 随时导出，也能存成 .excalidraw 文件带走。你的画，永远是你的。', icon: <g stroke="#7C3AED" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4 v10 M8 10 l4 4 l4 -4 M5 20 h14" /></g> },
 ];
 
-export default function Home() {
+export default async function Home() {
+  // Logged-in visitors skip the landing page and go straight to their boards.
+  // Any auth-check failure falls through to the landing page.
+  let loggedIn = false;
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    loggedIn = !!user;
+  } catch { /* anonymous: show landing */ }
+  if (loggedIn) redirect('/boards');
   return (
     <div>
       <nav style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 28px', maxWidth: 1180, margin: '0 auto' }}>
