@@ -72,7 +72,14 @@ export default function BoardsPage() {
     const { data, error } = await supabase.from('drawings').insert({ owner_id: (await supabase.auth.getUser()).data.user!.id }).select('id').single();
     if (!error && data) router.push(`/board/${data.id}`);
   }
-  async function rename(d: Drawing) { setMenuId(null); const t = prompt('画板名称', d.title); if (!t) return; await createClient().from('drawings').update({ title: t }).eq('id', d.id); load(); }
+  const [renameTarget, setRenameTarget] = useState<Drawing | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  function rename(d: Drawing) { setMenuId(null); setRenameTarget(d); setRenameValue(d.title); }
+  async function submitRename() {
+    const t = renameValue.trim(); if (!renameTarget || !t) return;
+    await createClient().from('drawings').update({ title: t }).eq('id', renameTarget.id);
+    setRenameTarget(null); load();
+  }
   async function remove(d: Drawing) { setMenuId(null); if (!confirm(`删除「${d.title}」？删了就找不回来了。`)) return; await createClient().from('drawings').delete().eq('id', d.id); load(); }
   async function duplicate(d: Drawing) { setMenuId(null); const supabase = createClient(); const { data: full } = await supabase.from('drawings').select('*').eq('id', d.id).single(); if (!full) return; await supabase.from('drawings').insert({ owner_id: full.owner_id, title: full.title + ' 副本', scene: full.scene, thumbnail_path: full.thumbnail_path }); load(); }
 
@@ -140,6 +147,21 @@ export default function BoardsPage() {
           </div>
         )}
       </main>
+      {renameTarget && (
+        <div onMouseDown={() => setRenameTarget(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(17,17,17,.42)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 20, padding: 16 }}>
+          <div onMouseDown={e => e.stopPropagation()} role="dialog" aria-label="重命名画板" style={{ background: '#fff', borderRadius: 16, padding: 22, width: 'min(400px,92vw)', boxShadow: '0 24px 60px rgba(0,0,0,.25)' }}>
+            <h2 style={{ margin: '0 0 4px', fontSize: 19 }}>重命名画板</h2>
+            <p style={{ margin: '0 0 14px', color: '#888', fontSize: 14 }}>给这张画板起个一眼能认出的名字。</p>
+            <input className="input" autoFocus value={renameValue} onChange={e => setRenameValue(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') submitRename(); if (e.key === 'Escape') setRenameTarget(null); }}
+              placeholder="画板名称" maxLength={60} />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
+              <button className="btn ghost" onClick={() => setRenameTarget(null)}>取消</button>
+              <button className="btn" onClick={submitRename} disabled={!renameValue.trim()} style={{ opacity: renameValue.trim() ? 1 : .5 }}>保存</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
