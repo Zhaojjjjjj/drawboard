@@ -8,6 +8,17 @@ import '@excalidraw/excalidraw/index.css';
 
 const Excalidraw = dynamic(async () => (await import('@excalidraw/excalidraw')).Excalidraw, { ssr: false });
 
+// Canonical stringify (sorted object keys): jsonb round-trips reorder keys,
+// so scene identity must not depend on key order.
+function stableStringify(v: any): string {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v) ?? 'null';
+  if (Array.isArray(v)) return '[' + v.map(stableStringify).join(',') + ']';
+  return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + stableStringify(v[k])).join(',') + '}';
+}
+function sceneOf(elements: readonly any[], appState: any, files: any) {
+  return { elements: [...elements], appState: { viewBackgroundColor: appState?.viewBackgroundColor, currentItemFontFamily: appState?.currentItemFontFamily }, files };
+}
+
 export default function BoardEditor({ id }: { id: string }) {
   const isGuest = id === 'guest';
   const supabase = useMemo(() => createClient(), []);
@@ -18,6 +29,11 @@ export default function BoardEditor({ id }: { id: string }) {
   const lastVersionAt = useRef(0);
   const lastThumbAt = useRef(0);
   const apiRef = useRef<any>(null);
+  // Signature of the scene as loaded / last queued for save. Excalidraw fires
+  // onChange echoes for non-content reasons (hydration, re-renders); without
+  // this check every save is instantly followed by echo pushes that mark the
+  // scene dirty again, so the badge never settles on "saved".
+  const lastSigRef = useRef<string | null>(null);
 
   // Best-effort thumbnail: at most once a minute, failures ignored
   // (e.g. until the 002 storage-policy SQL has been run).
@@ -50,15 +66,19 @@ export default function BoardEditor({ id }: { id: string }) {
   }), [id, isGuest, supabase, title]);
 
   useEffect(() => { (async () => {
-    if (isGuest) { try { setInitial(JSON.parse(localStorage.getItem('drawboard-guest') || 'null')); } catch { setInitial(null); } setInitial((v:any)=>v ?? { elements:[], appState:{}, files:{} }); return; }
+    const seed = (scene: any) => { const s = scene ?? { elements: [], appState: {}, files: {} }; lastSigRef.current = stableStringify(sceneOf(s.elements ?? [], s.appState ?? {}, s.files ?? {})); setInitial(s); };
+    if (isGuest) { let saved: any = null; try { saved = JSON.parse(localStorage.getItem('drawboard-guest') || 'null'); } catch { saved = null; } seed(saved); return; }
     const { data } = await supabase.from('drawings').select('title,scene').eq('id', id).single();
-    if (data) { setTitle(data.title); setInitial(data.scene ?? { elements:[], appState:{}, files:{} }); } else setInitial({ elements:[], appState:{}, files:{} });
+    if (data) setTitle(data.title);
+    seed(data?.scene);
   })(); }, [id, isGuest, supabase]);
 
   const onChange = useCallback((elements: readonly any[], appState: any, files: any) => {
-    // Skip the initial hydration echo: only save when elements reference changes after load is handled by debounce + dirty check in Excalidraw ecosystem;
-    // we keep it simple and rely on user edits triggering changes.
-    saver.push({ elements: [...elements], appState: { viewBackgroundColor: appState.viewBackgroundColor, currentItemFontFamily: appState.currentItemFontFamily }, files });
+    const scene = sceneOf(elements, appState, files);
+    const sig = stableStringify(scene);
+    if (sig === lastSigRef.current) return; // echo / no content change: do not dirty the saver
+    lastSigRef.current = sig;
+    saver.push(scene);
   }, [saver]);
 
   const dot = { saved:'#22c55e', saving:'#f59e0b', dirty:'#f59e0b', failed:'#ef4444' }[status];
