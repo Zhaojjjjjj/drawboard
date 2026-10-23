@@ -28,7 +28,7 @@
 - 前端/全栈：Next.js 15 (App Router) + React 19 + TypeScript
 - 画布：@excalidraw/excalidraw
 - 数据库/登录/存储：Supabase（Postgres + Auth + Storage）
-  - Auth：邮箱密码 + GitHub 登录（一键，zz 本人最顺手）
+  - Auth：仅 Google 登录（2026-10-23 zz 改定，先简化）
   - 不用自建 scrypt 用户表——Supabase Auth 现成、带 RLS，省一周
 - 部署：Vercel（同其他项目）
 - 样式：纯白 + #7C3AED 紫（zz 锁定设计系统，画布外壳/列表页/登录页遵循，白板内保持 Excalidraw 原生主题）
@@ -79,7 +79,7 @@ drawing_versions
 | 路由 | 页面 | 说明 |
 |---|---|---|
 | `/` | 落地页 | 一句话定位 + 「开始画」CTA + 登录入口，不做营销长页 |
-| `/login` | 登录/注册 | 邮箱密码 + GitHub 登录 |
+| `/login` | 登录 | 仅 Google 登录 |
 | `/boards` | 我的画板 | 卡片网格（缩略图/标题/更新时间），新建/重命名/复制/删除，搜索 |
 | `/board/[id]` | 画布页 | 全屏 Excalidraw + 顶栏：标题(可编辑)/保存状态/导出PNG·SVG/分享(禁用占位)/返回列表 |
 | `/board/new` | 新建 | 建空记录后跳转 /board/[id]，保证第一笔就有云端 id 可存 |
@@ -91,7 +91,7 @@ drawing_versions
 **v1（首版，目标当天可跑通主链路）**
 - [ ] Next.js 脚手架 + Excalidraw 组件接入（动态 import，ssr:false）
 - [ ] Supabase 迁移 SQL：drawings + versions + RLS + thumbnails 桶
-- [ ] 登录：邮箱密码 + GitHub OAuth（Supabase Auth）
+- [ ] 登录：仅 Google OAuth（Supabase Auth）
 - [ ] 画板 CRUD + 列表页
 - [ ] 自动保存（防抖+状态指示+失败重试）+ 游客本地存/登录导入
 - [ ] 导出 PNG/SVG（官方自带，接入菜单即可）
@@ -111,10 +111,10 @@ drawing_versions
 ⚠️ 已知限制（2026-10-08 实测）：Muse 的 GitHub 集成没有建仓权限（403），仓库要 zz 本人在 GitHub 建。
 
 1. zz 建私有仓库（建议名见下）→ 在 https://github.com/apps/meta-muse-ai/installations/new 给 Muse 授权该仓库
-2. 我方：本地脚手架已先搭好 → 授权后一次性推送 → zz 在 Supabase 建项目跑迁移、Vercel 导入仓库、填 env（SUPABASE_URL / ANON_KEY / SERVICE_ROLE / GitHub OAuth 回调）
+2. 我方：本地脚手架已先搭好 → 授权后一次性推送 → zz 在 Supabase 建项目跑迁移、Vercel 导入仓库、填 env（SUPABASE_URL / ANON_KEY / SERVICE_ROLE / Google OAuth 回调）
 3. 联调：登录 → 新建 → 画 → 看到“已保存” → 刷新/换浏览器登录 → 画板还在 = 主链路通
 
 ## 8. 待 zz 拍板（仅 2 项）
 
 1. 仓库名：`drawboard`（推荐） / `sketchboard` / `zz-draw`
-2. 登录方式：邮箱+GitHub 双开（推荐） / 只 GitHub / 只邮箱
+2. 登录方式：已定版（2026-10-23）仅 Google 登录
