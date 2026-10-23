@@ -16,6 +16,26 @@ export default function BoardEditor({ id }: { id: string }) {
   const [status, setStatus] = useState<SaveStatus>('saved');
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const lastVersionAt = useRef(0);
+  const lastThumbAt = useRef(0);
+  const apiRef = useRef<any>(null);
+
+  // Best-effort thumbnail: at most once a minute, failures ignored
+  // (e.g. until the 002 storage-policy SQL has been run).
+  async function maybeThumbnail(sb: ReturnType<typeof createClient>) {
+    if (Date.now() - lastThumbAt.current < 60_000) return;
+    const api = apiRef.current; if (!api) return;
+    try {
+      const elements = api.getSceneElements();
+      if (!elements?.length) return;
+      lastThumbAt.current = Date.now();
+      const { exportToBlob } = await import('@excalidraw/excalidraw');
+      const blob = await exportToBlob({ elements, appState: api.getAppState(), files: api.getFiles(), mimeType: 'image/png', maxWidthOrHeight: 640 });
+      const user = (await sb.auth.getUser()).data.user; if (!user) return;
+      const path = `${user.id}/${id}.png`;
+      const { error } = await sb.storage.from('thumbnails').upload(path, blob, { upsert: true, contentType: 'image/png' });
+      if (!error) await sb.from('drawings').update({ thumbnail_path: path }).eq('id', id);
+    } catch { /* thumbnail is decorative; never break saving */ }
+  }
 
   const saver = useMemo(() => createAutosaver({
     onStatus: (s, at) => { setStatus(s); if (at) setSavedAt(at); },
@@ -23,6 +43,7 @@ export default function BoardEditor({ id }: { id: string }) {
       if (isGuest) { localStorage.setItem('drawboard-guest', JSON.stringify(scene)); return; }
       const { error } = await supabase.from('drawings').update({ scene, title, updated_at: new Date().toISOString() }).eq('id', id);
       if (error) throw error;
+      void maybeThumbnail(supabase);
       // version snapshot at most every 5 min (rollback safety net, UI in v1.1)
       if (Date.now() - lastVersionAt.current > 5 * 60_000) { lastVersionAt.current = Date.now(); await supabase.from('drawing_versions').insert({ drawing_id: id, scene }); }
     },
@@ -51,7 +72,7 @@ export default function BoardEditor({ id }: { id: string }) {
         {status==='failed' && <button onClick={()=>saver.flush()}>重试</button>}
         {isGuest && <Link href="/login" style={{marginLeft:'auto'}}>登录后自动保存到云端 →</Link>}
       </div>
-      <div className="excalidraw-wrap"><Excalidraw initialData={initial} onChange={onChange} langCode="zh-CN" /></div>
+      <div className="excalidraw-wrap"><Excalidraw initialData={initial} onChange={onChange} langCode="zh-CN" excalidrawAPI={(api: any) => { apiRef.current = api; }} /></div>
     </div>
   );
 }
