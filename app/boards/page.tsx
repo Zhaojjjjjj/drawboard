@@ -35,6 +35,14 @@ export default function BoardsPage() {
   const [items, setItems] = useState<Drawing[]>([]);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [email, setEmail] = useState<string | null>(null);
+  const [uid, setUid] = useState<string | null>(null);
+  const [profile, setProfile] = useState<{ display_name: string; avatar_path: string | null } | null>(null);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  const [avatarVer, setAvatarVer] = useState(0);
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [profileMsg, setProfileMsg] = useState('');
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
   const [menuId, setMenuId] = useState<string | null>(null);
@@ -46,6 +54,9 @@ export default function BoardsPage() {
     const { data: { user } } = await supabase.auth.getUser();
     setEmail(user?.email ?? null);
     if (!user) { setLoading(false); return; }
+    setUid(user.id);
+    const { data: prof } = await supabase.from('profiles').select('display_name,avatar_path').eq('id', user.id).maybeSingle();
+    setProfile(prof ?? { display_name: '', avatar_path: null });
     const { data } = await supabase.from('drawings').select('id,title,thumbnail_path,updated_at').order('updated_at', { ascending: false });
     const list = data ?? []; setItems(list);
     const paths = list.map(d => d.thumbnail_path).filter(Boolean) as string[];
@@ -84,17 +95,70 @@ export default function BoardsPage() {
   async function duplicate(d: Drawing) { setMenuId(null); const supabase = createClient(); const { data: full } = await supabase.from('drawings').select('*').eq('id', d.id).single(); if (!full) return; await supabase.from('drawings').insert({ owner_id: full.owner_id, title: full.title + ' 副本', scene: full.scene, thumbnail_path: full.thumbnail_path }); load(); }
 
   const shown = items.filter(d => d.title.includes(q));
-  const initial = (email?.[0] ?? 'D').toUpperCase();
+  const displayName = profile?.display_name?.trim() || (email ? email.split('@')[0] : '');
+  const avatarUrl = profile?.avatar_path ? createClient().storage.from('avatars').getPublicUrl(profile.avatar_path).data.publicUrl + `?v=${avatarVer}` : null;
+  function Avatar({ size }: { size: number }) {
+    if (avatarUrl) return <img src={avatarUrl} alt="" style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', display: 'block' }} />;
+    return <span style={{ width: size, height: size, borderRadius: '50%', background: '#7C3AED', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: Math.round(size * 0.45) }}>{(displayName?.[0] ?? 'D').toUpperCase()}</span>;
+  }
+  const menuItemStyle: React.CSSProperties = { display: 'block', width: '100%', textAlign: 'left', border: 0, background: 'transparent', padding: '9px 10px', borderRadius: 8, cursor: 'pointer', fontSize: 14.5 };
+  async function persistProfile(display_name: string, avatar_path: string | null) {
+    if (!uid) return false;
+    const { error } = await createClient().from('profiles').upsert({ id: uid, display_name, avatar_path, updated_at: new Date().toISOString() });
+    if (error) return false;
+    setProfile({ display_name, avatar_path }); return true;
+  }
+  async function saveName() {
+    setProfileBusy(true); setProfileMsg('');
+    const ok = await persistProfile(nameDraft.trim(), profile?.avatar_path ?? null);
+    setProfileBusy(false);
+    if (ok) { setProfileMsg('已保存'); setTimeout(() => setSettingsOpen(false), 450); } else setProfileMsg('保存失败，请稍后再试');
+  }
+  async function pickAvatar(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]; e.target.value = '';
+    if (!f || !uid) return;
+    setProfileBusy(true); setProfileMsg('');
+    try {
+      const bmp = await createImageBitmap(f);
+      const side = Math.min(bmp.width, bmp.height);
+      const cv = document.createElement('canvas'); cv.width = 256; cv.height = 256;
+      cv.getContext('2d')!.drawImage(bmp, (bmp.width - side) / 2, (bmp.height - side) / 2, side, side, 0, 0, 256, 256);
+      const blob = await new Promise<Blob | null>(r => cv.toBlob(r, 'image/jpeg', 0.85));
+      if (!blob) throw new Error('bad image');
+      const path = `${uid}/avatar.jpg`;
+      const { error } = await createClient().storage.from('avatars').upload(path, blob, { upsert: true, contentType: 'image/jpeg' });
+      if (error) throw error;
+      const ok = await persistProfile(nameDraft || profile?.display_name || '', path);
+      if (ok) { setAvatarVer(Date.now()); setProfileMsg('头像已更新'); } else setProfileMsg('保存失败，请稍后再试');
+    } catch { setProfileMsg('头像上传失败，请稍后再试'); }
+    setProfileBusy(false);
+  }
 
   return (
     <div>
       <nav style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '14px 28px', borderBottom: '1px solid #f0f0f0', position: 'sticky', top: 0, background: '#fff', zIndex: 5 }}>
         <Link href="/" style={{ color: 'inherit' }}><Logo size={26} /></Link>
         <div style={{ flex: 1 }} />
-        {email ? <>
-          <span style={{ width: 34, height: 34, borderRadius: '50%', background: '#7C3AED', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }} title={email}>{initial}</span>
-          <button className="btn ghost" onClick={async () => { await createClient().auth.signOut(); router.push('/'); }}>退出</button>
-        </> : <Link className="btn ghost" href="/login">登录</Link>}
+        {email ? (
+          <div style={{ position: 'relative' }}>
+            <button onClick={() => setUserMenuOpen(o => !o)} style={{ border: 0, background: 'transparent', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 9, padding: 0 }}>
+              <Avatar size={34} />
+              <span style={{ fontSize: 14, color: '#333', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</span>
+            </button>
+            {userMenuOpen && <>
+              <div onClick={() => setUserMenuOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 8 }} />
+              <div style={{ position: 'absolute', right: 0, top: 46, background: '#fff', border: '1px solid #eee', borderRadius: 12, boxShadow: '0 14px 40px rgba(0,0,0,.14)', padding: 8, zIndex: 9, width: 230 }}>
+                <div style={{ padding: '8px 10px' }}>
+                  <div style={{ fontWeight: 600 }}>{displayName}</div>
+                  <div style={{ color: '#999', fontSize: 13, marginTop: 1 }}>{email}</div>
+                </div>
+                <div style={{ height: 1, background: '#f0f0f0', margin: '4px 0' }} />
+                <button onClick={() => { setUserMenuOpen(false); setNameDraft(profile?.display_name ?? ''); setProfileMsg(''); setSettingsOpen(true); }} style={menuItemStyle}>账户设置</button>
+                <button onClick={async () => { await createClient().auth.signOut(); router.push('/'); }} style={menuItemStyle}>退出登录</button>
+              </div>
+            </>}
+          </div>
+        ) : <Link className="btn ghost" href="/login">登录</Link>}
         <button className="btn" onClick={create}>+ 新建画板</button>
       </nav>
       <main style={{ maxWidth: 1080, margin: '0 auto', padding: '30px 24px 60px' }}>
@@ -158,6 +222,28 @@ export default function BoardsPage() {
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
               <button className="btn ghost" onClick={() => setRenameTarget(null)}>取消</button>
               <button className="btn" onClick={submitRename} disabled={!renameValue.trim()} style={{ opacity: renameValue.trim() ? 1 : .5 }}>保存</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {settingsOpen && (
+        <div onMouseDown={() => setSettingsOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(17,17,17,.42)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 20, padding: 16 }}>
+          <div onMouseDown={e => e.stopPropagation()} role="dialog" aria-label="账户设置" style={{ background: '#fff', borderRadius: 16, padding: 22, width: 'min(400px,92vw)', boxShadow: '0 24px 60px rgba(0,0,0,.25)' }}>
+            <h2 style={{ margin: 0, fontSize: 19 }}>账户设置</h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, margin: '18px 0 16px' }}>
+              <Avatar size={64} />
+              <div>
+                <label className="btn ghost" style={{ cursor: 'pointer', padding: '8px 14px', fontSize: 14 }}>更换头像<input type="file" accept="image/*" hidden onChange={pickAvatar} /></label>
+                <p style={{ color: '#999', fontSize: 13, margin: '7px 0 0' }}>选一张图，自动裁成正方形。</p>
+              </div>
+            </div>
+            <label style={{ display: 'block', fontSize: 14, fontWeight: 600, marginBottom: 7 }}>显示名称</label>
+            <input className="input" value={nameDraft} onChange={e => setNameDraft(e.target.value)} placeholder="给自己起个名字" maxLength={24}
+              onKeyDown={e => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') setSettingsOpen(false); }} />
+            {profileMsg && <p style={{ color: profileMsg.includes('失败') ? '#dc2626' : '#16a34a', fontSize: 14, margin: '12px 0 0' }}>{profileMsg}</p>}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 18 }}>
+              <button className="btn ghost" onClick={() => setSettingsOpen(false)}>取消</button>
+              <button className="btn" onClick={saveName} disabled={profileBusy} style={{ opacity: profileBusy ? .5 : 1 }}>保存</button>
             </div>
           </div>
         </div>
